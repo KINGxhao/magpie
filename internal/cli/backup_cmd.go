@@ -45,6 +45,9 @@ func backupCmd(args []string) error {
 	if !lib {
 		b.Library = nil
 	}
+	if err := backup.WithSignIns(&b); err != nil {
+		return err
+	}
 	pass, err := passphrase("Passphrase for the backup: ", true)
 	if err != nil {
 		return err
@@ -67,6 +70,10 @@ func backupCmd(args []string) error {
 		fmt.Printf("; library: %d MCP servers, %d skills", len(l.MCP), len(l.Skills))
 	}
 	fmt.Println()
+	if n := b.SignIns.Count(); n > 0 {
+		fmt.Println(muted.Render(fmt.Sprintf("%d subscription sign-ins are in it: whoever opens it is signed in to them. Keep the passphrase: without it the file can't be opened.", n)))
+		return nil
+	}
 	fmt.Println(muted.Render("Subscriptions are not in it: sign in to them on the other machine. Keep the passphrase: without it the file can't be opened."))
 	return nil
 }
@@ -118,6 +125,9 @@ func restoreCmd(args []string) error {
 	fmt.Println()
 	if len(r.NeedKey) > 0 {
 		fmt.Println(muted.Render("Needs a key (magpie provider key <id>): " + strings.Join(r.NeedKey, ", ")))
+	}
+	if len(r.SignedIn) > 0 {
+		fmt.Println(muted.Render("Signed in from the backup: " + strings.Join(r.SignedIn, ", ")))
 	}
 	if len(r.SignIn) > 0 {
 		fmt.Println(muted.Render("The backup's settings use these, not signed in on this computer (a backup carries settings, not sign-ins; to use one here: magpie accounts add <id>): " + strings.Join(r.SignIn, ", ")))

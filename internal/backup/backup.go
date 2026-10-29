@@ -2,9 +2,8 @@
 // with a passphrase, to carry to another machine: the providers (their keys
 // too, unless left out), the pictures picked for them, the settings, the
 // profiles, every agent's model and the library (the instructions, MCP
-// servers and skills magpie gives the agents). Subscriptions are not in it: each is
-// the sign-in of an agent on this machine, so each machine signs in on its
-// own.
+// servers and skills magpie gives the agents). A backup file made with keys
+// carries the subscriptions' sign-ins too (WithSignIns); a sync never does.
 //
 // The file is JSON: a header naming how it is sealed, and the bundle
 // encrypted with AES-256-GCM under a key derived from the passphrase with
@@ -94,6 +93,9 @@ type Bundle struct {
 	ProvidersKeys *bool `json:"providersKeys,omitempty"`
 	SettingsKeys  *bool `json:"settingsKeys,omitempty"`
 	LibraryKeys   *bool `json:"libraryKeys,omitempty"`
+	// SignIns are the subscriptions' sign-ins, in a backup file made with
+	// keys (WithSignIns); never in Collect's, so never in a sync.
+	SignIns *provider.SignIns `json:"signIns,omitempty"`
 }
 
 type envelope struct {
@@ -242,6 +244,20 @@ func Collect(keys bool, app string) (Bundle, error) {
 	return b, nil
 }
 
+// WithSignIns adds this computer's subscription sign-ins to a backup file
+// made with keys.
+func WithSignIns(b *Bundle) error {
+	if !b.Keys {
+		return nil
+	}
+	s, err := provider.ExportSignIns()
+	if err != nil {
+		return err
+	}
+	b.SignIns = s
+	return nil
+}
+
 // Secret reports whether a header or an environment variable by that name
 // looks like it holds a key: what a backup without keys leaves empty.
 func Secret(name string) bool { return provider.SecretHeader(name) }
@@ -366,6 +382,8 @@ type Result struct {
 	// SignIn is the subscriptions whose settings came with no account
 	// here: a backup carries no sign-in, so they are listed once one is
 	SignIn []string `json:",omitempty"`
+	// SignedIn is the accounts the backup's sign-ins added here
+	SignedIn []string `json:",omitempty"`
 	// Plugins are the plugins installed for it, PluginErrors why the others
 	// couldn't be, by spec
 	Plugins         []string          `json:",omitempty"`
@@ -417,6 +435,11 @@ func Restore(b Bundle, parts Parts) (Result, error) {
 		}
 		if b.Plugins != nil {
 			r.Plugins, r.PluginErrors = AddPlugins(*b.Plugins)
+		}
+		if b.SignIns != nil {
+			if r.SignedIn, err = provider.ImportSignIns(b.SignIns); err != nil {
+				return r, err
+			}
 		}
 		r.SignIn = provider.NotSignedIn(b.Providers)
 		stored, err := provider.Stored()

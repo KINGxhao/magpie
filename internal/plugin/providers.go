@@ -3,10 +3,13 @@ package plugin
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -929,6 +932,120 @@ func SignOut(ctx context.Context, provider, account string) error {
 	}
 	changed()
 	return nil
+}
+
+// AuthEntries is plugin-auth.json's sign-ins by key, read now; nil when
+// there is no file, an error when it is there and can't be read.
+func AuthEntries() (map[string]json.RawMessage, error) {
+	b, err := readAuthFile()
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// AddAuths keeps the sign-ins in m that plugin-auth.json doesn't hold yet:
+// one whose provider has an account of the same id here is left out; one
+// whose key holds another account here goes under a fresh slot. It gives
+// the keys added.
+func AddAuths(m map[string]json.RawMessage) ([]string, error) {
+	if len(m) == 0 {
+		return nil, nil
+	}
+	unlock := lockAuth()
+	defer unlock()
+	have := map[string]json.RawMessage{}
+	b, err := readAuthFile()
+	switch {
+	case err == nil:
+		if err := json.Unmarshal(b, &have); err != nil {
+			return nil, err
+		}
+		if have == nil {
+			have = map[string]json.RawMessage{}
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return nil, err // sign-ins that don't read are not written over
+	}
+	var added []string
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		if authHeld(have, k, m[k]) {
+			continue
+		}
+		key := k
+		if _, taken := have[key]; taken {
+			key = freshSlot(have, ProviderOf(k))
+		}
+		have[key] = m[k]
+		added = append(added, key)
+	}
+	if len(added) == 0 {
+		return nil, nil
+	}
+	out, err := json.MarshalIndent(have, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(AuthPath()), 0o700); err != nil {
+		return nil, err
+	}
+	if err := lastgood.Keep(AuthPath(), validAuth, 0o600); err != nil {
+		return nil, err
+	}
+	if err := writeWhole(AuthPath(), append(out, '\n')); err != nil {
+		return nil, err
+	}
+	changed()
+	return added, nil
+}
+
+// authHeld says have holds the sign-in raw (kept under key) already: the
+// same sign-in under any key of its provider, or an account of its
+// provider with the same id.
+func authHeld(have map[string]json.RawMessage, key string, raw json.RawMessage) bool {
+	var in storedAuth
+	_ = json.Unmarshal(raw, &in)
+	who := firstNonEmpty(in.AccountID, in.Metadata.Email, in.Email)
+	for k, v := range have {
+		if ProviderOf(k) != ProviderOf(key) {
+			continue
+		}
+		if sameJSON(v, raw) {
+			return true
+		}
+		var a storedAuth
+		_ = json.Unmarshal(v, &a)
+		if who != "" && strings.EqualFold(firstNonEmpty(a.AccountID, a.Metadata.Email, a.Email), who) {
+			return true
+		}
+	}
+	return false
+}
+
+// sameJSON says a and b are one JSON document, however each is laid out.
+func sameJSON(a, b []byte) bool {
+	var ca, cb bytes.Buffer
+	return json.Compact(&ca, a) == nil && json.Compact(&cb, b) == nil && bytes.Equal(ca.Bytes(), cb.Bytes())
+}
+
+// freshSlot is a key for another account of provider, as host.js's
+// freshKey makes one.
+func freshSlot(have map[string]json.RawMessage, provider string) string {
+	for {
+		var r [3]byte
+		_, _ = rand.Read(r[:])
+		k := provider + "#" + hex.EncodeToString(r[:])
+		if _, taken := have[k]; !taken {
+			return k
+		}
+	}
 }
 
 // Options is what the provider's auth loader gave: where its requests

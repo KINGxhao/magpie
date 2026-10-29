@@ -199,7 +199,12 @@ func copilotSaved(l savedLogin) (copilotApp, bool) {
 	if h, err := CopilotHost(app.Host); err != nil || h != app.Host {
 		return copilotApp{}, false
 	}
-	app.User = l.User
+	// the Copilot CLI's token carried from another computer: sent as is
+	var src struct {
+		CLI bool `json:"cli"`
+	}
+	_ = json.Unmarshal(l.Auth, &src)
+	app.User, app.cli = l.User, src.CLI
 	return app, true
 }
 

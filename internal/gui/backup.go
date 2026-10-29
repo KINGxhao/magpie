@@ -37,6 +37,10 @@ func backupRoutes(mux *http.ServeMux, w Windows) {
 		if in.Library != nil && !*in.Library {
 			b.Library = nil
 		}
+		if err := backup.WithSignIns(&b); err != nil {
+			fail(rw, err)
+			return
+		}
 		data, err := backup.Seal(b, in.Pass)
 		if err != nil {
 			fail(rw, err)
@@ -56,7 +60,7 @@ func backupRoutes(mux *http.ServeMux, w Windows) {
 		}
 		os.Chmod(name, 0o600)
 		_ = w.OpenFolder(dir) // saved either way; the path is in the answer
-		writeJSON(rw, map[string]any{"path": tilde(name), "providers": len(b.Providers), "profiles": len(b.Profiles), "agents": len(b.Agents), "library": b.Library != nil})
+		writeJSON(rw, map[string]any{"path": tilde(name), "providers": len(b.Providers), "profiles": len(b.Profiles), "agents": len(b.Agents), "library": b.Library != nil, "signIns": b.SignIns.Count()})
 	})
 	mux.HandleFunc("POST /api/backup/import", func(rw http.ResponseWriter, r *http.Request) {
 		var in struct {

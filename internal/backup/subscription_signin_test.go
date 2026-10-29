@@ -1,9 +1,11 @@
 package backup
 
-// What a backup must never carry: a subscription's sign-in. #880 asked for
-// one and was closed as intentional — a subscription is the sign-in of an
-// agent on one machine, so each machine signs in on its own, and a bundle
-// that carried one would sign the agent in on the machine it was put on.
+// What Collect, and so a sync, must never carry: a subscription's sign-in.
+// #880 asked for one and was closed as intentional — a subscription is the
+// sign-in of an agent on one machine, so each machine signs in on its own,
+// and a bundle that carried one would sign the agent in on the machine it
+// was put on. A backup file made with keys adds them on purpose
+// (WithSignIns, signin_carry_test.go); a bundle without them changes none.
 //
 // The policy has two sides. A subscription the user has moved onto its
 // plugin still has a row in providers.json, and that row travels, so the
